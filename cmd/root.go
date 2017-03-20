@@ -1,23 +1,13 @@
-// Copyright © 2017 Alexander Ivakin
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"runtime"
+	"time"
 
+	"github.com/shirou/gopsutil/net"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -27,16 +17,78 @@ var cfgFile string
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
 	Use:   "fpsutil",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
+	Short: "Very basic network IO counters",
+	Long:  `Very basic network IO counters`,
+	Run:   mainLoop,
+}
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-// Uncomment the following line if your bare application
-// has an action associated with it:
-//	Run: func(cmd *cobra.Command, args []string) { },
+func mainLoop(cmd *cobra.Command, args []string) {
+	numCPU := runtime.NumCPU()
+
+	if numCPU > 2 {
+		runtime.GOMAXPROCS(numCPU - 1)
+	}
+
+	timestamp := time.Now()
+	filename := fmt.Sprintf("netstats%s.csv", timestamp.Format("20060102T150405"))
+	f, err := os.Create(filename)
+	check(err)
+	defer f.Close()
+
+	f.WriteString("Timestamp,Bytes Total/sec,Bytes Sent/sec,Bytes Received/sec,Packets Total/sec,Packets Sent/sec,Packets Received/sec,Total number of errors while receiving/sec,Total number of errors while sending/sec,Total number of dropped incoming packets/sec,Total number of dropped outgoing packets/sec,Total number of FIFO buffers errors while receiving/sec,Total number of FIFO buffers errors while sending/sec\n")
+	f.Sync()
+
+	tenChan := make(chan string, 60)
+	defer close(tenChan)
+
+	buffer := bufio.NewWriter(f)
+	go logger(tenChan, buffer)
+
+	ticker := time.NewTicker(time.Second)
+	prevStats, _ := getTotalIOCountersStat()
+	for t := range ticker.C {
+		nextStats, _ := getTotalIOCountersStat()
+		str := fmt.Sprintf("%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+			t.Format("20060102T15:04:05.999-0700"),
+			nextStats.BytesSent-prevStats.BytesSent+nextStats.BytesRecv-prevStats.BytesRecv,
+			nextStats.BytesSent-prevStats.BytesSent,
+			nextStats.BytesRecv-prevStats.BytesRecv,
+			nextStats.PacketsSent-prevStats.PacketsSent+nextStats.PacketsRecv-prevStats.PacketsRecv,
+			nextStats.PacketsSent-prevStats.PacketsSent,
+			nextStats.PacketsRecv-prevStats.PacketsRecv,
+			nextStats.Errin-prevStats.Errin,
+			nextStats.Errout-prevStats.Errout,
+			nextStats.Dropin-prevStats.Dropin,
+			nextStats.Dropout-prevStats.Dropout,
+			nextStats.Fifoin-prevStats.Fifoin,
+			nextStats.Fifoout-prevStats.Fifoout)
+		prevStats = nextStats
+		tenChan <- str
+	}
+}
+
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
+}
+
+func logger(msgs <-chan string, buffer *bufio.Writer) {
+	const flushInterval int = 1024
+	var buffered int = 0
+	for msg := range msgs {
+		n, _ := buffer.WriteString(msg)
+		buffered += n
+		if buffered > flushInterval {
+			buffer.Flush()
+			buffered = 0
+		}
+	}
+}
+
+func getTotalIOCountersStat() (net.IOCountersStat, error) {
+	ioCountersStats, err := net.IOCounters(false)
+	return ioCountersStats[0], err
 }
 
 // Execute adds all child commands to the root command sets flags appropriately.
@@ -68,8 +120,8 @@ func initConfig() {
 	}
 
 	viper.SetConfigName(".fpsutil") // name of config file (without extension)
-	viper.AddConfigPath("$HOME")  // adding home directory as first search path
-	viper.AutomaticEnv()          // read in environment variables that match
+	viper.AddConfigPath("$HOME")    // adding home directory as first search path
+	viper.AutomaticEnv()            // read in environment variables that match
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
