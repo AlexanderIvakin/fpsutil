@@ -1,6 +1,8 @@
 plugins {
-  id "org.echocat.golang" version "0.1.15"
+  id "org.echocat.golang" version "0.1.16"
 }
+
+import org.gradle.internal.os.OperatingSystem;
 
 group 'github.com/AlexanderIvakin/fpsutil'
 
@@ -8,20 +10,21 @@ golang {
     // Set default platforms to build but make it overwritable via -Dplatforms=<..>
     platforms = System.getProperty("platforms", "linux-amd64,windows-amd64,darwin-amd64,freebsd-amd64")
 
-    build {
-    	gopath = "$System.env.GOPATH"
-    	useTemporaryGopath = false
-    }
-
-    toolchain {
-    	goversion = 'go1.8'
-    	goroot = "$System.env.GOROOT"
-    }    
-
     dependencies {
         build 'github.com/shirou/gopsutil'
         build 'github.com/urfave/cli'
         build 'github.com/spf13/cobra'
         test 'github.com/stretchr/testify'
+    }
+}
+
+if (OperatingSystem.current().isWindows()) {
+    golang.build {
+        gopath = "$System.env.GOPATH"
+        useTemporaryGopath = false
+    }
+    golang.toolchain {
+        goversion = "go1.8"
+        goroot = "$System.env.GOROOT"
     }
 }

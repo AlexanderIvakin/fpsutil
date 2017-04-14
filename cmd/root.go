@@ -38,11 +38,11 @@ func mainLoop(cmd *cobra.Command, args []string) {
 	f.WriteString("Timestamp,Bytes Total/sec,Bytes Sent/sec,Bytes Received/sec,Packets Total/sec,Packets Sent/sec,Packets Received/sec,Total number of errors while receiving/sec,Total number of errors while sending/sec,Total number of dropped incoming packets/sec,Total number of dropped outgoing packets/sec,Total number of FIFO buffers errors while receiving/sec,Total number of FIFO buffers errors while sending/sec\n")
 	f.Sync()
 
-	tenChan := make(chan string, 60)
-	defer close(tenChan)
+	countersChannel := make(chan string, 60)
+	defer close(countersChannel)
 
 	buffer := bufio.NewWriter(f)
-	go logger(tenChan, buffer)
+	go logger(countersChannel, buffer)
 
 	ticker := time.NewTicker(time.Second)
 	prevStats, _ := getTotalIOCountersStat()
@@ -63,7 +63,7 @@ func mainLoop(cmd *cobra.Command, args []string) {
 			nextStats.Fifoin-prevStats.Fifoin,
 			nextStats.Fifoout-prevStats.Fifoout)
 		prevStats = nextStats
-		tenChan <- str
+		countersChannel <- str
 	}
 }
 
@@ -75,7 +75,7 @@ func check(e error) {
 
 func logger(msgs <-chan string, buffer *bufio.Writer) {
 	const flushInterval int = 1024
-	var buffered int = 0
+	var buffered int
 	for msg := range msgs {
 		n, _ := buffer.WriteString(msg)
 		buffered += n
@@ -84,6 +84,7 @@ func logger(msgs <-chan string, buffer *bufio.Writer) {
 			buffered = 0
 		}
 	}
+	buffer.Flush()
 }
 
 func getTotalIOCountersStat() (net.IOCountersStat, error) {
