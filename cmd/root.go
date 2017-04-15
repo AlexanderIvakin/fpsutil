@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"runtime"
 	"time"
 
 	"github.com/shirou/gopsutil/net"
@@ -23,11 +22,6 @@ var RootCmd = &cobra.Command{
 }
 
 func mainLoop(cmd *cobra.Command, args []string) {
-	numCPU := runtime.NumCPU()
-
-	if numCPU > 2 {
-		runtime.GOMAXPROCS(numCPU - 1)
-	}
 
 	timestamp := time.Now()
 	filename := fmt.Sprintf("netstats%s.csv", timestamp.Format("20060102T150405"))
